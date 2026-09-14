@@ -3,8 +3,10 @@
 A [BOSS Console](https://github.com/risa-labs-inc/BossConsole) plugin for testing
 conversational AI — chatbots and voice bots — against a fixed rubric.
 
-> **Status: skeleton.** The plugin loads, registers a panel, and contributes its
-> MCP tool surface. The evaluation engine is not implemented yet.
+> **Status: evaluation core implemented, no UI yet.** The runner, deterministic
+> evaluators, and suite/category aggregation work and are unit tested. There is
+> no LLM judge, no suite file format, and no UI — the panel is still a
+> placeholder, and no MCP tool exposes the runner yet.
 
 ## Why
 
@@ -15,13 +17,22 @@ helped. There is no `npm test` for a voice agent.
 This plugin aims to be that: a fixed test suite, real metrics, and a
 per-category breakdown, driven by the agent that is building the bot.
 
+Working today:
+
+- **HTTP runner** against any JSON chat endpoint — configurable request fields
+  and a dot-path response extractor (`choices.0.message.content`)
+- **Latency, status, and error capture**, with timeouts and connection failures
+  recorded as results rather than crashing the run
+- **Deterministic evaluators** — non-empty, HTTP success, latency budget,
+  required phrases (with partial credit), forbidden phrases
+- **Per-category aggregation** — `happy_path: 92%`, `adversarial: 64%`
+
 Planned:
 
-- **Latency** split by stage (STT → LLM → TTS), plus cost and error rate
-- **Quality** scored per question category — happy path, ambiguous, out-of-scope,
-  adversarial, multi-turn memory, persona drift
-- **LLM-as-judge** scoring against a fixed rubric
+- **LLM-as-judge** scoring against a rubric (the `Evaluator` seam already exists)
+- **Suite files** so cases live in version control, not code
 - **Regression diff** against a stored baseline
+- **Voice**: latency split by stage (STT → LLM → TTS) and WER
 
 ## MCP tools
 

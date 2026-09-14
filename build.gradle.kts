@@ -78,18 +78,22 @@ dependencies {
     implementation(compose.ui)
     implementation(compose.foundation)
     implementation(compose.material)
-    implementation(compose.materialIconsExtended)
 
     implementation("br.com.devsrsouza.compose.icons:feather:1.1.1")
 
     implementation("com.arkivanov.decompose:decompose:3.3.0")
     implementation("com.arkivanov.essenty:lifecycle:2.5.0")
 
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
+    // Versions match what the BOSS host ships (gradle/libs.versions.toml).
+    // kotlinx.coroutines and kotlinx.serialization are parent-first shared
+    // packages (PluginClassLoader.defaultSharedPackages), so the host's copies
+    // win at runtime regardless of what a plugin declares - compiling against
+    // the same versions keeps that honest.
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
 
     testImplementation(kotlin("test"))
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
-    testImplementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
 }
 
 tasks.test {
