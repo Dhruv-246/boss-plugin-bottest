@@ -75,3 +75,52 @@ internal fun exchange(
     statusCode = if (outcome == ExchangeOutcome.OK) 200 else null,
     responseText = responseText,
 )
+
+/** In-memory suite store, so MCP tool tests touch no filesystem. */
+class FakeSuiteRepository(
+    private val suites: Map<String, SuiteLoadResult> = emptyMap(),
+    private val summaries: List<SuiteSummary> = emptyList(),
+    private val exists: Boolean = true,
+    private val onList: (() -> Unit)? = null,
+) : SuiteRepository {
+
+    override suspend fun list(): List<SuiteSummary> {
+        onList?.invoke()
+        return summaries
+    }
+
+    override suspend fun load(id: String): SuiteLoadResult =
+        suites[id] ?: SuiteLoadResult.NotFound(id, suites.keys.sorted())
+
+    override suspend fun storageExists(): Boolean = exists
+
+    companion object {
+        fun holding(suite: TestSuite, exists: Boolean = true) = FakeSuiteRepository(
+            suites = mapOf(suite.id to SuiteLoadResult.Loaded(suite)),
+            summaries = listOf(
+                SuiteSummary(
+                    id = suite.id,
+                    name = suite.name,
+                    description = suite.description,
+                    testCount = suite.cases.size,
+                    categories = suite.cases.map { it.category }.distinct(),
+                ),
+            ),
+            exists = exists,
+        )
+    }
+}
+
+internal fun suite(
+    id: String = "customer-support",
+    name: String = "Customer Support Tests",
+    description: String = "Basic tests for the support chatbot",
+    url: String = "http://localhost:8000/chat",
+    cases: List<BotTestCase> = listOf(testCase()),
+) = TestSuite(
+    id = id,
+    name = name,
+    description = description,
+    target = BotTarget(url = url),
+    cases = cases,
+)

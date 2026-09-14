@@ -53,6 +53,13 @@ data class Criteria(
             "maxLatencyMs must be positive when set, was $maxLatencyMs"
         }
     }
+
+    /** True when nothing here can be checked without an LLM judge. */
+    val isRubricOnly: Boolean
+        get() = !rubric.isNullOrBlank() &&
+            requiredPhrases.isEmpty() &&
+            forbiddenPhrases.isEmpty() &&
+            maxLatencyMs == null
 }
 
 /** A single conversational test case. */

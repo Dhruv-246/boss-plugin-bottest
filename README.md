@@ -3,10 +3,10 @@
 A [BOSS Console](https://github.com/risa-labs-inc/BossConsole) plugin for testing
 conversational AI — chatbots and voice bots — against a fixed rubric.
 
-> **Status: evaluation core implemented, no UI yet.** The runner, deterministic
-> evaluators, and suite/category aggregation work and are unit tested. There is
-> no LLM judge, no suite file format, and no UI — the panel is still a
-> placeholder, and no MCP tool exposes the runner yet.
+> **Status: usable from an agent, no UI yet.** Suites are JSON files, and
+> `bottest_list_suites` / `bottest_run_suite` are live MCP tools. There is no LLM
+> judge, no baseline/regression tracking, and no UI — the panel is still a
+> placeholder.
 
 ## Why
 
@@ -19,6 +19,7 @@ per-category breakdown, driven by the agent that is building the bot.
 
 Working today:
 
+- **JSON suite files**, runnable from an agent via MCP
 - **HTTP runner** against any JSON chat endpoint — configurable request fields
   and a dot-path response extractor (`choices.0.message.content`)
 - **Latency, status, and error capture**, with timeouts and connection failures
@@ -30,7 +31,6 @@ Working today:
 Planned:
 
 - **LLM-as-judge** scoring against a rubric (the `Evaluator` seam already exists)
-- **Suite files** so cases live in version control, not code
 - **Regression diff** against a stored baseline
 - **Voice**: latency split by stage (STT → LLM → TTS) and WER
 
@@ -40,9 +40,57 @@ Tools surface to agents in BOSS as `mcp__boss__bottest_*`.
 
 | Tool | Status | Description |
 |---|---|---|
-| `bottest_info` | ✅ | Report plugin status and available capabilities |
-| `bottest_run_suite` | planned | Run a test suite against a bot endpoint |
+| `bottest_info` | ✅ | Plugin status and available capabilities |
+| `bottest_list_suites` | ✅ | List suites — id, name, description, test count, categories |
+| `bottest_run_suite` | ✅ | Run a suite; returns a structured JSON report |
 | `bottest_compare` | planned | Diff a run against a baseline |
+
+`bottest_run_suite` takes `suite_id` (required) and `timeout_ms` (optional
+per-request override). It returns JSON — summary counts, overall score, per
+category scores, average latency, error rate, failing test ids, and the reason
+each one failed.
+
+## Suite files
+
+Suites are `<id>.json` files in one directory. The filename must match the
+suite's `id`. The directory is `~/.bottest/suites` by default, or
+`$BOTTEST_SUITES_DIR` if set. See [`examples/basic-suite.json`](examples/basic-suite.json).
+
+```json
+{
+  "id": "customer-support",
+  "name": "Customer Support Tests",
+  "description": "Basic tests for the support chatbot",
+  "target": {
+    "url": "http://localhost:8000/chat",
+    "method": "POST",
+    "timeoutMs": 15000,
+    "request": { "messageField": "message" },
+    "response": { "responsePath": "response" }
+  },
+  "tests": [
+    {
+      "id": "happy_01",
+      "category": "happy_path",
+      "input": "How do I reset my password?",
+      "criteria": { "requiredPhrases": ["password"], "maxLatencyMs": 3000 }
+    },
+    {
+      "id": "ambiguous_01",
+      "category": "ambiguous",
+      "input": "Can you change my appointment?",
+      "criteria": ["Does not assume which appointment", "Asks a clarification"]
+    }
+  ]
+}
+```
+
+`criteria` takes two shapes. An **object** drives the deterministic evaluators.
+An **array of strings** is a natural-language rubric — it is stored, but
+**nothing checks it yet**; runs that rely on it say so in the report's `notes`.
+
+Categories: `happy_path`, `ambiguous`, `out_of_scope`, `adversarial`, `persona`,
+`multi_turn`, `edge_case`.
 
 ## Build
 

@@ -6,9 +6,10 @@ import ai.rever.boss.plugin.api.PluginContext
 /**
  * Bot Test - a testing framework for conversational AI inside BOSS.
  *
- * Skeleton only: this registers the panel and the MCP tool surface so the wiring
- * can be verified end to end. The evaluation engine (suite runner, latency
- * metrics, LLM-as-judge scoring, regression diffing) is not implemented yet.
+ * Registers the panel and the bottest_* MCP tool surface. Suites are read from
+ * the filesystem (see FileSuiteRepository.defaultRoot) and run with the
+ * deterministic evaluators. LLM-as-judge scoring, baselines and the real UI are
+ * not implemented yet.
  */
 class BotTestDynamicPlugin : DynamicPlugin {
     override val pluginId: String = "ai.rever.boss.plugin.dynamic.bottest"
@@ -25,6 +26,8 @@ class BotTestDynamicPlugin : DynamicPlugin {
         }
         // Contributes the bottest_* tools to the `boss` MCP server. The host's
         // TrackingPluginContext unregisters this automatically on disable/unload.
+        // Defaults resolve the suites directory and a JDK-backed runner; both are
+        // constructor parameters so tests can substitute fakes.
         context.registerMcpToolProvider(BotTestMcpToolProvider(pluginId, PLUGIN_VERSION))
     }
 
