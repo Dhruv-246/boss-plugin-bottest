@@ -1,0 +1,43 @@
+name: Tests
+
+# Upstream RISA plugins run this on pull_request only, because their build.yml
+# compiles every push to main via the shared release pipeline. This repo has no
+# release pipeline (that needs BOSS_STORE_PLUGIN_PUBLISH_KEY, which only RISA
+# holds), so main is built here too - otherwise nothing would ever compile it.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # `build`, not `test`: build also depends on buildPluginJar, which is
+      # where packaging lives. Running only tests would let a packaging break
+      # stay green. The boss-plugin-api jar is fetched by the
+      # downloadBossPluginApi task wired into the compile classpath.
+      - name: Compile, test, and assemble the plugin jar
+        run: ./gradlew build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: boss-plugin-bottest-jar
+          path: build/libs/boss-plugin-bottest-*.jar
+          if-no-files-found: error
