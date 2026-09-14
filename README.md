@@ -3,10 +3,11 @@
 A [BOSS Console](https://github.com/risa-labs-inc/BossConsole) plugin for testing
 conversational AI — chatbots and voice bots — against a fixed rubric.
 
-> **Status: usable from an agent, no UI yet.** Suites are JSON files, and
-> `bottest_list_suites` / `bottest_run_suite` are live MCP tools. There is no LLM
-> judge, no baseline/regression tracking, and no UI — the panel is still a
-> placeholder.
+> **Status: usable from an agent, no UI yet.** Suites are JSON files,
+> `bottest_list_suites` / `bottest_run_suite` are live MCP tools, and rubric
+> criteria are scored by an LLM judge that borrows the AI BOSS already has — no
+> second API key. No baseline/regression tracking, and no UI — the panel is still
+> a placeholder.
 
 ## Why
 
@@ -27,10 +28,29 @@ Working today:
 - **Deterministic evaluators** — non-empty, HTTP success, latency budget,
   required phrases (with partial credit), forbidden phrases
 - **Per-category aggregation** — `happy_path: 92%`, `adversarial: 64%`
+- **LLM judge** for rubric criteria, via BOSS's own AI gateway
+
+## The LLM judge
+
+Rubric criteria are graded by an LLM. The plugin holds **no API key**: it calls
+`AiGatewayAPI`, which resolves whatever provider BOSS is configured with — and
+when you are driving BOSS with a coding CLI, routes through that CLI's own
+terminal login. If you already run Claude Code in BOSS, the judge works with
+nothing to set up.
+
+- Only cases declaring a rubric are judged, so a deterministic suite costs nothing
+- `judge=false` on `bottest_run_suite` disables it
+- A judge that is unavailable or fails is **skipped, never failed** — that is a
+  fact about your machine, not about the chatbot — and the report says so
+- Grading runs at `temperature=0` for repeatability, and the grading model is
+  named in each verdict
+
+**Caveat worth knowing:** the judge uses whatever model BOSS is configured with.
+If that is the same model that wrote the chatbot, it is marking its own homework.
+Point BOSS at a different model when that matters.
 
 Planned:
 
-- **LLM-as-judge** scoring against a rubric (the `Evaluator` seam already exists)
 - **Regression diff** against a stored baseline
 - **Voice**: latency split by stage (STT → LLM → TTS) and WER
 
@@ -86,8 +106,7 @@ suite's `id`. The directory is `~/.bottest/suites` by default, or
 ```
 
 `criteria` takes two shapes. An **object** drives the deterministic evaluators.
-An **array of strings** is a natural-language rubric — it is stored, but
-**nothing checks it yet**; runs that rely on it say so in the report's `notes`.
+An **array of strings** is a natural-language rubric, graded by the LLM judge.
 
 Categories: `happy_path`, `ambiguous`, `out_of_scope`, `adversarial`, `persona`,
 `multi_turn`, `edge_case`.
@@ -130,7 +149,7 @@ BOSS's terminal can call `bottest_info`.
 
 | | |
 |---|---|
-| `boss-plugin-api` | 1.0.91 |
+| `boss-plugin-api` | 1.0.90 |
 | Minimum BOSS | 9.5.0 |
 | JDK | 17 |
 

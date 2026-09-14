@@ -113,13 +113,24 @@ object SuiteReport {
             add("Showing the first $MAX_FAILURES_REPORTED of $failureCount failures; failedTestIds lists them all.")
         }
 
-        val awaitingJudge = suite.casesAwaitingJudge.size
-        if (awaitingJudge > 0) {
-            add(
-                "$awaitingJudge of ${suite.cases.size} cases declare only natural-language criteria. " +
-                    "No evaluator checks those yet (the LLM judge is not implemented), so they were " +
-                    "scored on transport and latency alone.",
-            )
+        val rubricCases = suite.cases.count { !it.criteria.rubric.isNullOrBlank() }
+        if (rubricCases > 0) {
+            val judged = result.results.count { testResult ->
+                testResult.evaluations.any { it.evaluatorId == LlmJudgeEvaluator.ID && !it.skipped }
+            }
+            if (judged == 0) {
+                val reason = result.results
+                    .firstNotNullOfOrNull { testResult ->
+                        testResult.evaluations.firstOrNull { it.evaluatorId == LlmJudgeEvaluator.ID }?.detail
+                    }
+                    ?: "no judge was enabled for this run"
+                add(
+                    "$rubricCases of ${suite.cases.size} cases declare natural-language criteria that " +
+                        "were not judged ($reason), so they were scored on the deterministic checks alone.",
+                )
+            } else if (judged < rubricCases) {
+                add("$judged of $rubricCases rubric cases were judged; the rest fell back to deterministic checks only.")
+            }
         }
 
         if (result.errors > 0) {

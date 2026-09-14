@@ -3,7 +3,7 @@
   "pluginId": "ai.rever.boss.plugin.dynamic.bottest",
   "displayName": "Bot Test",
   "version": "0.1.0",
-  "apiVersion": "1.0.91",
+  "apiVersion": "1.0.90",
   "minBossVersion": "9.5.0",
   "mainClass": "ai.rever.boss.plugin.dynamic.bottest.BotTestDynamicPlugin",
   "type": "panel",

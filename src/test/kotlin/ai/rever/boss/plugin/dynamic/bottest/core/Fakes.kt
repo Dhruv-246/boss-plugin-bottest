@@ -124,3 +124,36 @@ internal fun suite(
     target = BotTarget(url = url),
     cases = cases,
 )
+
+/** Scriptable judge, so judge tests need no AI at all. */
+class FakeJudgeClient(
+    private val outcome: (JudgeRequest) -> JudgeOutcome = {
+        JudgeOutcome.Judged(JudgeVerdict(passed = true, score = 1.0, reasoning = "Looks fine"))
+    },
+    private val available: JudgeAvailability = JudgeAvailability(true, "fake judge", "fake-model"),
+) : JudgeClient {
+
+    val requests = mutableListOf<JudgeRequest>()
+
+    override suspend fun judge(request: JudgeRequest): JudgeOutcome {
+        requests += request
+        return outcome(request)
+    }
+
+    override suspend fun availability(): JudgeAvailability = available
+
+    companion object {
+        fun verdict(passed: Boolean, score: Double, reasoning: String = "because", modelId: String = "") =
+            FakeJudgeClient(
+                outcome = { JudgeOutcome.Judged(JudgeVerdict(passed, score, reasoning, modelId)) },
+            )
+
+        fun unavailable(reason: String = "no gateway") = FakeJudgeClient(
+            outcome = { JudgeOutcome.Unavailable(reason) },
+            available = JudgeAvailability(false, reason),
+        )
+
+        fun failing(reason: String = "quota exceeded") =
+            FakeJudgeClient(outcome = { JudgeOutcome.Failed(reason) })
+    }
+}

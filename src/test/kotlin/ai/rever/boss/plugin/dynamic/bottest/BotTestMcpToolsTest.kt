@@ -1,10 +1,12 @@
 package ai.rever.boss.plugin.dynamic.bottest
 
 import ai.rever.boss.plugin.api.McpToolArgs
-import ai.rever.boss.plugin.dynamic.bottest.core.BotTestRunner
 import ai.rever.boss.plugin.dynamic.bottest.core.Criteria
 import ai.rever.boss.plugin.dynamic.bottest.core.FakeHttpTransport
+import ai.rever.boss.plugin.dynamic.bottest.core.FakeJudgeClient
 import ai.rever.boss.plugin.dynamic.bottest.core.FakeSuiteRepository
+import ai.rever.boss.plugin.dynamic.bottest.core.JudgeClient
+import ai.rever.boss.plugin.dynamic.bottest.core.NoJudgeClient
 import ai.rever.boss.plugin.dynamic.bottest.core.SuiteLoadResult
 import ai.rever.boss.plugin.dynamic.bottest.core.TestCategory
 import ai.rever.boss.plugin.dynamic.bottest.core.TransportConnectionException
@@ -29,11 +31,13 @@ class BotTestMcpToolsTest {
     private fun provider(
         repository: FakeSuiteRepository = FakeSuiteRepository(),
         transport: FakeHttpTransport = FakeHttpTransport.responding(okBody),
+        judgeClient: JudgeClient = NoJudgeClient,
     ) = BotTestMcpToolProvider(
         providerId = "ai.rever.boss.plugin.dynamic.bottest",
         pluginVersion = "0.1.0",
         repository = repository,
-        runnerFactory = { BotTestRunner(transport) },
+        judgeClient = judgeClient,
+        transportFactory = { transport },
     )
 
     private suspend fun call(
@@ -41,7 +45,8 @@ class BotTestMcpToolsTest {
         args: Map<String, Any?> = emptyMap(),
         repository: FakeSuiteRepository = FakeSuiteRepository(),
         transport: FakeHttpTransport = FakeHttpTransport.responding(okBody),
-    ) = provider(repository, transport)
+        judgeClient: JudgeClient = NoJudgeClient,
+    ) = provider(repository, transport, judgeClient)
         .tools()
         .single { it.name == name }
         .handler
@@ -330,5 +335,99 @@ class BotTestMcpToolsTest {
 
         assertFalse(result.text.contains("super-secret-value"), "query credentials must be redacted")
         assertContains(result.text, "<redacted>")
+    }
+
+    // ---------- LLM judge ----------
+
+    @Test
+    fun `run_suite schema documents the judge switch`() {
+        val schema = Json.parseToJsonElement(
+            provider().tools().single { it.name == "bottest_run_suite" }.inputSchema,
+        ).jsonObject
+
+        val judge = schema["properties"]!!.jsonObject["judge"]!!.jsonObject
+        assertEquals("boolean", judge["type"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `run_suite judges rubric cases by default`() = runTest {
+        val judge = FakeJudgeClient.verdict(passed = false, score = 0.2, reasoning = "Assumed the appointment")
+
+        val result = call(
+            "bottest_run_suite",
+            mapOf("suite_id" to "customer-support"),
+            repository = FakeSuiteRepository.holding(
+                suite(cases = listOf(testCase(id = "amb_01", criteria = Criteria(rubric = "Asks a clarification")))),
+            ),
+            judgeClient = judge,
+        )
+
+        assertEquals(1, judge.requests.size, "the rubric case should have been judged")
+        val summary = Json.parseToJsonElement(result.text).jsonObject["summary"]!!.jsonObject
+        assertEquals("1", summary["failed"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `judge false skips the judge entirely`() = runTest {
+        val judge = FakeJudgeClient.verdict(passed = false, score = 0.0)
+
+        val result = call(
+            "bottest_run_suite",
+            mapOf("suite_id" to "customer-support", "judge" to false),
+            repository = FakeSuiteRepository.holding(
+                suite(cases = listOf(testCase(id = "amb_01", criteria = Criteria(rubric = "Asks a clarification")))),
+            ),
+            judgeClient = judge,
+        )
+
+        assertTrue(judge.requests.isEmpty(), "judge=false must not call the judge")
+        val summary = Json.parseToJsonElement(result.text).jsonObject["summary"]!!.jsonObject
+        assertEquals("1", summary["passed"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `cases without a rubric never reach the judge`() = runTest {
+        val judge = FakeJudgeClient()
+
+        call(
+            "bottest_run_suite",
+            mapOf("suite_id" to "customer-support"),
+            repository = FakeSuiteRepository.holding(suite(cases = listOf(testCase(id = "plain")))),
+            judgeClient = judge,
+        )
+
+        assertTrue(judge.requests.isEmpty(), "a deterministic suite should cost no tokens")
+    }
+
+    @Test
+    fun `an unavailable judge degrades instead of failing the run`() = runTest {
+        val result = call(
+            "bottest_run_suite",
+            mapOf("suite_id" to "customer-support"),
+            repository = FakeSuiteRepository.holding(
+                suite(cases = listOf(testCase(id = "amb_01", criteria = Criteria(rubric = "Asks a clarification")))),
+            ),
+            judgeClient = FakeJudgeClient.unavailable("No AI Gateway plugin is installed"),
+        )
+
+        assertFalse(result.isError, result.text)
+        val json = Json.parseToJsonElement(result.text).jsonObject
+        assertEquals("1", json["summary"]!!.jsonObject["passed"]!!.jsonPrimitive.content)
+        val notes = json["notes"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertTrue(
+            notes.any { it.contains("not judged") && it.contains("No AI Gateway plugin") },
+            "the report must say the rubric went unchecked: $notes",
+        )
+    }
+
+    @Test
+    fun `info reports judge availability`() = runTest {
+        val available = call("bottest_info", judgeClient = FakeJudgeClient())
+        assertContains(available.text, "LLM judge: available")
+        assertContains(available.text, "fake-model")
+
+        val missing = call("bottest_info", judgeClient = FakeJudgeClient.unavailable("No AI Gateway plugin is installed"))
+        assertContains(missing.text, "LLM judge: unavailable")
+        assertContains(missing.text, "No AI Gateway plugin")
     }
 }

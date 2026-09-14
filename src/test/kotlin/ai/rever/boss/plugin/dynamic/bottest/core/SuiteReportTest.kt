@@ -137,7 +137,9 @@ class SuiteReportTest {
     }
 
     @Test
-    fun `rubric only cases are flagged as unjudged`() = runTest {
+    fun `rubric cases are flagged when no judge ran`() = runTest {
+        // report() runs the deterministic evaluators only, so nothing graded the
+        // rubric and the report has to say so rather than imply a clean pass.
         val json = report(
             listOf(
                 testCase(id = "r1", criteria = Criteria(rubric = "Asks a clarifying question")),
@@ -147,9 +149,59 @@ class SuiteReportTest {
 
         val notes = json["notes"]!!.jsonArray.map { it.jsonPrimitive.content }
         assertTrue(
-            notes.any { it.contains("2 of 2") && it.contains("LLM judge is not implemented") },
+            notes.any { it.contains("2 of 2") && it.contains("not judged") },
             notes.toString(),
         )
+    }
+
+    @Test
+    fun `no unjudged note once the judge has graded the rubric cases`() = runTest {
+        val testSuite = suite(
+            cases = listOf(testCase(id = "r1", criteria = Criteria(rubric = "Asks a clarifying question"))),
+        )
+        val runner = BotTestRunner(
+            FakeHttpTransport.responding(okBody),
+            evaluators = DefaultEvaluators.all + LlmJudgeEvaluator(
+                FakeJudgeClient.verdict(passed = true, score = 1.0),
+            ),
+        )
+
+        val result = runner.run(testSuite.target, testSuite.cases)
+        val json = Json.parseToJsonElement(SuiteReport.render(testSuite, result)).jsonObject
+
+        val notes = json["notes"]?.jsonArray?.map { it.jsonPrimitive.content } ?: emptyList()
+        assertTrue(notes.none { it.contains("not judged") }, notes.toString())
+    }
+
+    @Test
+    fun `a partially judged run says so`() = runTest {
+        val testSuite = suite(
+            cases = listOf(
+                testCase(id = "judged", criteria = Criteria(rubric = "Asks a clarifying question")),
+                testCase(id = "unjudged", criteria = Criteria(rubric = "Stays in character")),
+            ),
+        )
+        var calls = 0
+        val flaky = FakeJudgeClient(
+            outcome = {
+                calls++
+                if (calls == 1) {
+                    JudgeOutcome.Judged(JudgeVerdict(passed = true, score = 1.0, reasoning = "fine"))
+                } else {
+                    JudgeOutcome.Failed("quota exceeded")
+                }
+            },
+        )
+        val runner = BotTestRunner(
+            FakeHttpTransport.responding(okBody),
+            evaluators = DefaultEvaluators.all + LlmJudgeEvaluator(flaky),
+        )
+
+        val result = runner.run(testSuite.target, testSuite.cases)
+        val json = Json.parseToJsonElement(SuiteReport.render(testSuite, result)).jsonObject
+
+        val notes = json["notes"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertTrue(notes.any { it.contains("1 of 2 rubric cases were judged") }, notes.toString())
     }
 
     @Test

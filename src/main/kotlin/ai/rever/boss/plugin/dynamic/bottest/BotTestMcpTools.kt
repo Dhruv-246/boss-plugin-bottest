@@ -6,7 +6,13 @@ import ai.rever.boss.plugin.api.McpToolHandler
 import ai.rever.boss.plugin.api.McpToolProvider
 import ai.rever.boss.plugin.api.McpToolResult
 import ai.rever.boss.plugin.dynamic.bottest.core.BotTestRunner
+import ai.rever.boss.plugin.dynamic.bottest.core.DefaultEvaluators
+import ai.rever.boss.plugin.dynamic.bottest.core.Evaluator
 import ai.rever.boss.plugin.dynamic.bottest.core.FileSuiteRepository
+import ai.rever.boss.plugin.dynamic.bottest.core.HttpTransport
+import ai.rever.boss.plugin.dynamic.bottest.core.JudgeClient
+import ai.rever.boss.plugin.dynamic.bottest.core.LlmJudgeEvaluator
+import ai.rever.boss.plugin.dynamic.bottest.core.NoJudgeClient
 import ai.rever.boss.plugin.dynamic.bottest.core.JdkHttpTransport
 import ai.rever.boss.plugin.dynamic.bottest.core.SuiteListReport
 import ai.rever.boss.plugin.dynamic.bottest.core.SuiteLoadResult
@@ -48,8 +54,18 @@ internal class BotTestMcpToolProvider(
     override val providerId: String,
     private val pluginVersion: String,
     private val repository: SuiteRepository = FileSuiteRepository(FileSuiteRepository.defaultRoot()),
-    private val runnerFactory: () -> BotTestRunner = { BotTestRunner(JdkHttpTransport()) },
+    private val judgeClient: JudgeClient = NoJudgeClient,
+    private val transportFactory: () -> HttpTransport = { JdkHttpTransport() },
 ) : McpToolProvider {
+
+    private fun runner(useJudge: Boolean): BotTestRunner {
+        val evaluators: List<Evaluator> = if (useJudge) {
+            DefaultEvaluators.all + LlmJudgeEvaluator(judgeClient)
+        } else {
+            DefaultEvaluators.all
+        }
+        return BotTestRunner(transportFactory(), evaluators)
+    }
 
     override fun tools(): List<McpToolDefinition> = listOf(
         McpToolDefinition(
@@ -74,23 +90,29 @@ internal class BotTestMcpToolProvider(
             description = "Run a conversational test suite against the chatbot endpoint the " +
                 "suite configures, and return pass/fail counts, an overall score, per-category " +
                 "scores, latency, and the reason each failing test failed. Sends HTTP requests " +
-                "to the configured target.",
+                "to the configured target. Cases carrying a natural-language rubric are also " +
+                "scored by an LLM judge using the AI already configured in BOSS; pass judge=false " +
+                "to skip that.",
             inputSchema = RUN_SUITE_SCHEMA,
             readOnly = false,
             handler = McpToolHandler { args -> runSuite(args) },
         ),
     )
 
-    private fun info(verbose: Boolean): McpToolResult {
+    private suspend fun info(verbose: Boolean): McpToolResult {
+        val judge = judgeClient.availability()
         val lines = mutableListOf(
             "Bot Test $pluginVersion",
-            "Status: suite files and deterministic evaluation are available.",
-            "Not implemented yet: LLM-as-judge scoring, baselines/regression, UI.",
+            "Status: suite files, deterministic evaluation and rubric scoring are available.",
+            "Not implemented yet: baselines/regression, UI.",
+            "LLM judge: ${if (judge.available) "available" else "unavailable"} - ${judge.detail}" +
+                judge.modelId?.let { " (model: $it)" }.orEmpty(),
             "Available tools: ${tools().joinToString(", ") { it.name }}",
         )
         if (verbose) {
             lines += "Provider id: $providerId"
-            lines += "Evaluators: http_success, response_non_empty, latency, required_phrases, forbidden_phrases"
+            lines += "Evaluators: http_success, response_non_empty, latency, required_phrases, " +
+                "forbidden_phrases, llm_judge"
         }
         return McpToolResult(lines.joinToString("\n"))
     }
@@ -110,6 +132,7 @@ internal class BotTestMcpToolProvider(
             )
         }
 
+        val useJudge = args.boolean("judge") ?: true
         val timeoutOverrideMs = args.int("timeout_ms")?.toLong()
         if (timeoutOverrideMs != null && timeoutOverrideMs <= 0) {
             return McpToolResult("timeout_ms must be a positive number of milliseconds.", isError = true)
@@ -152,7 +175,7 @@ internal class BotTestMcpToolProvider(
         }
 
         return try {
-            val result = runnerFactory().run(target, suite.cases)
+            val result = runner(useJudge).run(target, suite.cases)
             McpToolResult(SuiteReport.render(suite, result))
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
@@ -174,7 +197,8 @@ internal class BotTestMcpToolProvider(
         private const val RUN_SUITE_SCHEMA =
             """{"type":"object","properties":{""" +
             """"suite_id":{"type":"string","description":"Id of the suite to run, as reported by bottest_list_suites."},""" +
-            """"timeout_ms":{"type":"integer","description":"Optional per-request timeout override in milliseconds. Defaults to the suite's target timeout."}""" +
+            """"timeout_ms":{"type":"integer","description":"Optional per-request timeout override in milliseconds. Defaults to the suite's target timeout."},""" +
+            """"judge":{"type":"boolean","description":"Score natural-language rubric criteria with an LLM judge, using the AI already configured in BOSS. Defaults to true; only cases that declare a rubric are judged."}""" +
             """},"required":["suite_id"]}"""
     }
 }
