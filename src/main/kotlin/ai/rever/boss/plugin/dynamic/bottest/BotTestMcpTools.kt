@@ -58,13 +58,25 @@ internal class BotTestMcpToolProvider(
     private val transportFactory: () -> HttpTransport = { JdkHttpTransport() },
 ) : McpToolProvider {
 
+    /**
+     * One transport for the life of the plugin.
+     *
+     * [JdkHttpTransport] wraps a `java.net.http.HttpClient`, which owns a
+     * selector thread and an executor and has no `close()` on JDK 17. Building
+     * one per run_suite call leaked a thread per run until GC collected the
+     * client - invisible in a test, a slow drain in a desktop app that stays
+     * open for days. Lazy, so registering the plugin costs nothing when no suite
+     * is ever run.
+     */
+    private val transport: HttpTransport by lazy { transportFactory() }
+
     private fun runner(useJudge: Boolean): BotTestRunner {
         val evaluators: List<Evaluator> = if (useJudge) {
             DefaultEvaluators.all + LlmJudgeEvaluator(judgeClient)
         } else {
             DefaultEvaluators.all
         }
-        return BotTestRunner(transportFactory(), evaluators)
+        return BotTestRunner(transport, evaluators)
     }
 
     override fun tools(): List<McpToolDefinition> = listOf(

@@ -149,8 +149,8 @@ BOSS's terminal can call `bottest_info`.
 
 | | |
 |---|---|
-| `boss-plugin-api` | 1.0.90 |
-| Minimum BOSS | 9.5.0 |
+| `boss-plugin-api` | 1.0.88 |
+| Minimum BOSS | 9.5.9 |
 | JDK | 17 |
 
 ## License

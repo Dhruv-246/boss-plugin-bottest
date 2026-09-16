@@ -46,6 +46,23 @@ BotTestMcpTools.kt        McpToolProvider — the bottest_* tool surface
 ./gradlew downloadBossPluginApi      # fetch the API jar into libs/
 ```
 
+## Version gating (verified against BossConsole source)
+
+`AiGatewayAPI` and `AiAvailability` were added in **boss-plugin-api 1.0.88**,
+first pinned by **BossConsole v9.5.9** (1.0.89 -> v9.5.14, 1.0.90 -> v9.5.17).
+Hence `apiVersion: 1.0.88`, `minBossVersion: 9.5.9`.
+
+Compile against the floor, not the latest: `ai.rever.boss.plugin.api.` is
+parent-first, so on a 9.5.9 host the host's 1.0.88 classes are what resolve.
+Building against 1.0.88 makes the compiler enforce that floor instead of leaving
+it to a runtime `NoSuchMethodError`. Raising the pin means re-checking which BOSS
+release first shipped that api version and raising `minBossVersion` to match.
+
+Compose 1.10.0, decompose 3.3.0, essenty 2.5.0 and Kotlin 2.3.0 are deliberately
+older than the host's (1.12.0 / 3.5.0 / 2.6.0 / 2.4.10). All are parent-first, so
+the host's copies win at runtime; these are the versions the canonical
+`boss-plugin-git-status` plugin compiles against.
+
 ## Upstream references
 
 - Host: https://github.com/risa-labs-inc/BossConsole

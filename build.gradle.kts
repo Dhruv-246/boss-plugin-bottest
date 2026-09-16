@@ -43,7 +43,7 @@ repositories {
 // instead. Same artifact, same compileOnly semantics, one code path for both
 // local builds and CI.
 // ---------------------------------------------------------------------------
-val bossPluginApiVersion = "1.0.90"
+val bossPluginApiVersion = "1.0.88"
 val bossPluginApiJar = layout.projectDirectory.file(
     "libs/boss-plugin-api-$bossPluginApiVersion.jar"
 ).asFile
