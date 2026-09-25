@@ -179,6 +179,8 @@ is the report refusing to imply that ungraded rubrics passed.
 
 ## Verification
 
+Full test plan with reproduction steps: [TESTING.md](TESTING.md).
+
 - **152 unit tests**, `./gradlew test`, all passing; CI runs `./gradlew build` on every push
   and PR. No live chatbot or AI provider is needed to run them - the HTTP transport and the
   judge are both behind interfaces with fakes.
