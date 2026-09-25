@@ -127,23 +127,87 @@ never bundled into the plugin jar.
 
 ## Install locally
 
-BOSS loads plugins from disk **at startup**, from `~/.boss_debug/plugins/` in
-dev mode or `~/.boss/plugins/` in production. Prefer dev mode so a test build
-never touches a production install.
+Requires a BOSS development instance. Follow [BOSS's source-build
+instructions](https://github.com/risa-labs-inc/BossConsole#development); `./gradlew run`
+from the host checkout launches development mode, which uses `~/.boss_debug` rather than
+`~/.boss`. Check the actual data path before installing.
 
 ```bash
-./gradlew clean buildPluginJar
-mkdir -p ~/.boss_debug/plugins
-cp build/libs/boss-plugin-bottest-0.1.0.jar ~/.boss_debug/plugins/
-rm -rf ~/.boss_debug/plugin-cache/ai.rever.boss.plugin.dynamic.bottest
-# then restart BOSS
+./gradlew clean buildPluginJar   # -> build/libs/boss-plugin-bottest-0.1.0.jar
 ```
 
-Clearing the extracted cache matters — without it the host keeps serving the
-previous bytecode.
+Then in the running development instance: **Toolbox -> From File**, select the JAR, enable
+the plugin, and follow any reload prompt. Its tools appear under **Toolbox -> MCP**; enable
+them there and call them from an attached agent.
 
-To verify: the **Bot Test** panel appears in the left sidebar, and an agent in
-BOSS's terminal can call `bottest_info`.
+Avoid leaving two JARs with the same plugin ID installed, and confirm the loaded version
+after reinstalling.
+
+## Access and data
+
+What this plugin touches, so you can decide whether that is acceptable before running it:
+
+| | |
+|---|---|
+| **Permissions** | None. The manifest declares no `requiredPermissions` and no `requiresAdmin`. |
+| **Filesystem** | Reads `*.json` from one suites directory (`~/.bottest/suites`, or `$BOTTEST_SUITES_DIR`). Read-only, size-capped, and suite ids are restricted so a path cannot escape that directory. Writes nothing. |
+| **Network out** | **Yes, by design.** `bottest_run_suite` sends each test case's text to the chat endpoint named in the suite's `target.url`. That is the system under test, chosen by you. |
+| **LLM calls** | Only for cases carrying a natural-language rubric, and only when `judge` is not false. These go through BOSS's own `AiGatewayAPI`, so they use the provider BOSS is already configured with. The plugin holds no API key and stores no credential. |
+| **What leaves BOSS** | Your test inputs and the bot's replies go to the target URL. For rubric cases, the input, the reply and the rubric are sent to your configured AI provider for grading. Nothing else is transmitted. |
+| **Secrets** | Target headers are never rendered into output, and URL query strings are redacted, so a token in a target URL cannot reach the agent. |
+| **Execution** | A suite is pure data. No shell command is run and nothing from a suite file is executed. |
+
+## Demo and evidence
+
+No in-BOSS screen recording yet — see Verification below for why. What has been run, against a
+local mock chatbot with safe sample data, is the full path from suite file to report:
+
+```
+suites listed = [(basic-suite, 8)]
+
+"summary":    { "total": 8, "passed": 8, "failed": 0, "errors": 0,
+                "overallScore": 1.0, "averageLatencyMs": 2, "durationMs": 29 }
+"categories": happy_path 2/2 · ambiguous 1/1 · out_of_scope 1/1 · adversarial 1/1
+              persona 1/1 · multi_turn 1/1 · edge_case 1/1
+"notes":      ["8 of 8 cases declare natural-language criteria that were not judged
+               (no judge was enabled for this run), so they were scored on the
+               deterministic checks alone."]
+```
+
+Real suite loaded from disk, eight real HTTP round trips, real aggregation. The `notes` line
+is the report refusing to imply that ungraded rubrics passed.
+
+## Verification
+
+- **152 unit tests**, `./gradlew test`, all passing; CI runs `./gradlew build` on every push
+  and PR. No live chatbot or AI provider is needed to run them - the HTTP transport and the
+  judge are both behind interfaces with fakes.
+- Covered: request encoding and JSON-injection safety, response extraction failures, timeouts,
+  HTTP errors, malformed and empty responses, latency budgets, phrase checks, scoring,
+  per-category aggregation, suite parsing and validation, path-traversal attempts, oversized
+  files, credential redaction, and judge unavailability.
+- **End-to-end verified outside the host** against a live HTTP mock bot (above).
+
+### Known limitations
+
+- **Never loaded inside a running BOSS.** The host could not be brought up here: Supabase is
+  unconfigured locally, `BossAppWithAuth` renders `BossApp` only when authenticated, and
+  `loadExternalPlugins()` lives inside it. So **the MCP bridge and the `AiGatewayAPI` judge
+  path are unexecuted** - tested by unit tests and read against the BOSS sources, not run.
+- The LLM judge needs the **AI Gateway plugin** installed; it is not among the system plugins
+  BOSS installs by default. Without it the judge reports unavailable and is skipped.
+- Cases run sequentially, so a large suite against a slow bot takes a while.
+- Multi-turn history is sent in one request rather than replayed turn by turn - fine for a
+  stateless endpoint, wrong for a bot holding server-side session state.
+- **Tested on macOS (arm64, JDK 17) only.** Windows and Linux are untested; nothing in the
+  code is platform-specific, but that is an expectation, not a result.
+
+## Ownership
+
+Author: [@Dhruv-246](https://github.com/Dhruv-246). No other collaborators. All code in this
+repository is original work written for the BOSS Contributor Hackathon; no third-party source
+was copied in. Runtime dependencies (Compose Multiplatform, Decompose, kotlinx, compose-icons)
+keep their own licences.
 
 ## Compatibility
 
@@ -152,6 +216,7 @@ BOSS's terminal can call `bottest_info`.
 | `boss-plugin-api` | 1.0.88 |
 | Minimum BOSS | 9.5.9 |
 | JDK | 17 |
+| Tested on | macOS arm64 (Windows/Linux untested) |
 
 ## License
 
